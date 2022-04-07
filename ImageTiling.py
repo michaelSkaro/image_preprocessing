@@ -202,6 +202,7 @@ def IntersectSegmentations(img_dir,output_dir, tiles, img, annotab, file):
 
 
 # RUNNER
+classes=['root','AMF internal hypha','AMF external hypha','AMF arbuscule','AMF vesicle','AMF spore','others']
 annotab, files = readAnnotation(img_dir)
 
 # make a list of all the points that intersect tile of an image and append each record to the list
