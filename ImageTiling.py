@@ -1,11 +1,14 @@
+# we need to break down the IntersectPolygons method into smaller functions. I am experiencing too many bugs
+
+# the objective today will be to break the method into 5 parts
+    # 1. Read in the annotation data and return a list of dictionaries
+    # 2. Pass the list of dictionaries to a readIMage function, read in an image from the filename key
+    # 3. Padd the image and tile the image. Return a list of coordinates for the bounding boxes
+    # 4. Iterate over each of the segmentations in the image and intersect them with the tile bounding boxes
+    # 5. If the segmentation intersects the tile, add it to a list of objects
+    # 6. Iterate over the list of objects and add them to the dataset_dicts
+
 def convertPoints(anno):
-    '''
-    :param anno:
-    :return points:
-    :rtype list of lists:
-    
-    Helper function to convert the X and Y coordinates to the polygon format of XYXY_ABS
-    '''
     points = [[]]
                     
     for x_coordinate in range(0,len(anno["all_points_x"]),2):
@@ -19,18 +22,6 @@ def convertPoints(anno):
 
 
 def intersectBoundingBox(points,xmin,ymin,xmax,ymax):
-    '''
-    :param points:
-    :param xmin:
-    :param ymin:
-    :param xmax:
-    :param ymax:
-    :rtype list:
-    Helper function to intersect the bounding box of the tile with the points in the annotated polygon
-    
-    '''
-  
-  
     converted_points = []
 
     for p in points:
@@ -120,9 +111,10 @@ def IntersectSegmentations(img_dir,output_dir, tiles, img, annotab, file):
     Objective: iterate over each of the segmentations in the image and intersect them with the tile bounding boxes
     '''
     filename=os.path.join(img_dir,file)
-    record = {}
+    records=[]
     # iterate over the tile coordinates
     for tile in tiles[0]:
+        record = {}
         
         # get the coordinate over the tile image
         xmin=tile[0]
@@ -138,7 +130,9 @@ def IntersectSegmentations(img_dir,output_dir, tiles, img, annotab, file):
         uid = str(uuid.uuid4())
 
         # write the image tile to a file using the UID as the name
-        #cv2.imwrite(os.path.join(output_dir,uid+'.jpg'),subimg)
+        
+
+        
 
         # begin building the record by adding the information for the COCO dataset
         record["filename"] = uid + '.jpg'
@@ -148,7 +142,7 @@ def IntersectSegmentations(img_dir,output_dir, tiles, img, annotab, file):
         record["annotations"] = []
         
         subtab = annotab[annotab['filename'] == file]
-        
+        objs =[]
         for anno_i in range(subtab.shape[0]):
             
             tab_rec=subtab.iloc[anno_i]
@@ -166,11 +160,13 @@ def IntersectSegmentations(img_dir,output_dir, tiles, img, annotab, file):
             # this is the problem line
             converted_points=intersectBoundingBox(points,xmin,ymin,xmax,ymax)
             
-            if len(converted_points) > 0:
+            if len(converted_points) > 1:
+                
                 Sxmin=min(converted_points,key=lambda x:x[0])[0]
                 Symin=min(converted_points,key=lambda x:x[1])[1]
                 Sxmax=max(converted_points,key=lambda x:x[0])[0]
                 Symax=max(converted_points,key=lambda x:x[1])[1]
+                converted_points=[item for sublist in converted_points for item in sublist]
                 Segbbox = [Sxmin,Symin,Sxmax,Symax]
 
                 obj = {
@@ -186,29 +182,63 @@ def IntersectSegmentations(img_dir,output_dir, tiles, img, annotab, file):
                     "bbox_mode": 'BoxMode.XYXY_ABS',
                     "iscrowd":0,
                     }
-                #print(obj)
+                objs.append(obj)
+                # append the object to the list of objects 
 
-                # append the obj to the record
-                if record["annotations"] == []:
-                    record["annotations"].append(obj)
-    return record
+        record["annotations"] = objs
+        records.append(record)
+        # if the img is not empty, then write the image to a file
+        if len(subimg)>0:
+            cv2.imwrite(os.path.join(output_dir,uid + '.jpg'),subimg)
 
+    return records
 
-            
-# Error: overwriting all of the previous tiles
-# TODO: Check why the the only tile coordinates being added to the list are the last tile in the list
-# possible error spots: line 125... am I only iterating over the one tile?, line 152: do I need to annotate 
-# over all of the annotated strcutures in each line? Add one more iteration?
-
-
+ 
+def writeRegionDataSet(dataset_dicts):
+    '''
+    :param dataset_dicts:
+    :return:
+    
+    # Objective: Iterate over the dataset_dicts, each record will consist of filename, image_id, height, width, and annotations.
+    We want to iterate over the annotations and write each annotation to a line in the csv file where the header line of the file
+    will be the keys of the annotations dict.
+    '''
+    import csv
+    with open(output_dir+"regiondata.csv", "w") as csvfile:
+        
+        fieldnames = ['original_file', 'tile_coordinates', 'image_id', 'file_name', 'height', 'width', 'category_id' , 
+        'bbox', 'segmentation', 'bbox_mode', 'iscrowd']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for record in dataset_dicts:
+            for obj in record["annotations"]:
+                writer.writerow(obj)   
+    
+    pass
+    
+             
+     
+#img = readImage(img_dir,files[0])
+#iles = tileImage(img)
+#IntersectSegmentations(img_dir,output_dir, tiles, img, annotab, files[0])
 # RUNNER
-classes=['root','AMF internal hypha','AMF external hypha','AMF arbuscule','AMF vesicle','AMF spore','others']
 annotab, files = readAnnotation(img_dir)
-
-# make a list of all the points that intersect tile of an image and append each record to the list
 dataset_dicts = []
 for stained_image in files:
     img = readImage(img_dir,stained_image)
     tiles = tileImage(img)
     record = IntersectSegmentations(img_dir,output_dir, tiles, img, annotab, stained_image)
-    dataset_dicts.append(record)
+    dataset_dicts.extend(record)
+
+
+writeRegionDataSet(dataset_dicts)
+    
+
+
+
+
+
+
+
+
+
